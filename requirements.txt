@@ -5,3 +5,5 @@ llama-index-vector-stores-chroma
 chromadb
 python-dotenv
 truststore
+fastapi
+uvicorn
