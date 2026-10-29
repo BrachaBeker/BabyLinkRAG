@@ -11,7 +11,7 @@ truststore.inject_into_ssl()
 load_dotenv()
 
 # הגדרות
-CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
 
 
 def main():

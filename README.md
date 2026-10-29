@@ -18,7 +18,7 @@
 | `search.py` · `ask.py` · `eval_questions.py` | בדיקות בטרמינל: שליפה בלבד, צ'אט, ו-Recall@k על שאלות בדיקה |
 
 ## החלטות
-- **מודלים:** Embeddings `gemini-embedding-001`, שיחה מ-`GEMINI_CHAT_MODEL` (ברירת מחדל `gemini-2.5-flash`).
+- **מודלים:** Embeddings `gemini-embedding-001`, שיחה מ-`GEMINI_CHAT_MODEL` (ברירת מחדל `gemini-3.5-flash`).
 - **Chunks:** `CHUNK_SIZE=512` tokens, כי עברית "יקרה" ב-tokens. כמעט כל סעיף במסמכים נשאר קטע שלם.
 - **בטיחות:** תוכן המסמכים הוא מידע ולא הוראות, היסטוריה רק עם `user`/`assistant`, שאלה עד 500 תווים.
 - **השרת לא שומר מצב:** הבועה שולחת את 6 ההודעות האחרונות בכל בקשה.

@@ -21,7 +21,7 @@ load_dotenv()
 # ==========================================
 
 EMBEDDING_MODEL = "gemini-embedding-001"
-CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
+CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "documents"
