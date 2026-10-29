@@ -19,7 +19,7 @@ QUESTIONS = [
 
 def main():
     """לכל שאלה: האם הקובץ הנכון נשלף (Recall@k). ובסוף - ציון כולל."""
-    llm, index, collection = get_clients()
+    llm, _, index, collection = get_clients()
 
     found = 0
     answerable = 0

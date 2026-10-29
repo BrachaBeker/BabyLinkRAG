@@ -22,6 +22,9 @@ load_dotenv()
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
+# מודל קל ומהיר לניסוח מחדש של שאלות המשך. למכסה החינמית יש מגבלה נפרדת לכל מודל,
+# כך שהניסוח לא "גוזל" קריאות ממודל התשובות
+REWRITE_MODEL = os.getenv("GEMINI_REWRITE_MODEL", "gemini-3.5-flash-lite")
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "documents"
@@ -53,13 +56,25 @@ SYSTEM_PROMPT = f"""
 7. במקרה חירום - הפנה מיד למד"א (101) או למשטרה (100), כמו שכתוב במסמכים.
 """
 
+# ניסוח מחדש של שאלת המשך, כדי שהחיפוש יבין אותה גם בלי השיחה
+REWRITE_PROMPT = """
+לפניך שיחה ושאלה חדשה. נסח מחדש את השאלה החדשה כשאלה עצמאית ומלאה,
+שמובנת גם בלי השיחה. אם היא כבר עצמאית - החזר אותה כמו שהיא.
+החזר רק את השאלה, בלי הסברים.
+
+השיחה:
+{history}
+
+השאלה החדשה: {question}
+"""
+
 
 # ==========================================
 # Initialize LlamaIndex and ChromaDB
 # ==========================================
 
 def get_clients():
-    """יוצר את מודל השיחה ואת האינדקס (חיבור ל-Chroma). נקרא פעם אחת בהתחלה."""
+    """יוצר את המודלים (תשובות + ניסוח מחדש) ואת האינדקס (חיבור ל-Chroma). נקרא פעם אחת בהתחלה."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
@@ -73,6 +88,12 @@ def get_clients():
     # temperature=0 - תשובה עקבית וצמודה למקורות, בלי "יצירתיות"
     llm = GoogleGenAI(
         model=CHAT_MODEL,
+        api_key=api_key,
+        temperature=0,
+    )
+
+    rewrite_llm = GoogleGenAI(
+        model=REWRITE_MODEL,
         api_key=api_key,
         temperature=0,
     )
@@ -94,12 +115,31 @@ def get_clients():
         embed_model=embed_model,
     )
 
-    return llm, index, collection
+    return llm, rewrite_llm, index, collection
 
 
 # ==========================================
 # Search documents
 # ==========================================
+
+def rewrite_question(question, history, llm):
+    """שאלת המשך ("ומה לגבי שמרטפית?") -> שאלה עצמאית לחיפוש.
+    בלי היסטוריה (שאלה ראשונה בשיחה) - מחזיר את השאלה כמו שהיא, בלי לפנות למודל."""
+    if not history:
+        return question
+
+    conversation = "\n".join(
+        f"{'משתמש' if item['role'] == 'user' else 'עוזר'}: {item['content']}"
+        for item in history[-MAX_HISTORY_MESSAGES:]
+    )
+
+    response = llm.complete(
+        REWRITE_PROMPT.format(history=conversation, question=question)
+    )
+
+    # אם המודל החזיר תשובה ריקה - מחפשים עם השאלה המקורית
+    return response.text.strip() or question
+
 
 def retrieve_documents(question, index):
     """מחזיר את TOP_K הקטעים הכי קרובים לשאלה (כמו ב-search.py)."""

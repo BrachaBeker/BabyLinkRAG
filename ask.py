@@ -1,12 +1,12 @@
-from rag import get_clients, retrieve_documents, generate_answer
+from rag import get_clients, rewrite_question, retrieve_documents, generate_answer
 
-# True = מדפיס גם את הקטעים שנשלפו והציונים שלהם (לבדיקה)
+# True = מדפיס גם את השאלה שנשלחה לחיפוש, ואת הקטעים שנשלפו והציונים שלהם (לבדיקה)
 SHOW_DOCUMENTS = False
 
 
 def main():
     """צ'אט בטרמינל מעל rag.py. Enter ריק = יציאה."""
-    llm, index, collection = get_clients()
+    llm, rewrite_llm, index, collection = get_clients()
     print(f"Chunks in database: {collection.count()}")
 
     # ההיסטוריה של השיחה הזו: [{"role": "user"/"assistant", "content": "..."}]
@@ -17,9 +17,12 @@ def main():
         if not question:
             break
 
-        documents = retrieve_documents(question, index)
+        # שאלת המשך מנוסחת מחדש כשאלה עצמאית, ורק איתה מחפשים
+        search_question = rewrite_question(question, history, rewrite_llm)
+        documents = retrieve_documents(search_question, index)
 
         if SHOW_DOCUMENTS:
+            print(f"  חיפוש: {search_question}")
             for doc in documents:
                 print(f"  [{doc['score']:.3f}] {doc['source']}")
 

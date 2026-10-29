@@ -8,7 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from rag import get_clients, retrieve_documents, generate_answer, MAX_HISTORY_MESSAGES
+from rag import (
+    get_clients,
+    rewrite_question,
+    retrieve_documents,
+    generate_answer,
+    MAX_HISTORY_MESSAGES,
+)
 
 # הגדרות
 MAX_QUESTION_LENGTH = 500
@@ -49,9 +55,10 @@ class ChatResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """רץ פעם אחת כשהשרת עולה: טוען את המודל ואת האינדקס (ולא בכל שאלה)."""
-    llm, index, collection = get_clients()
+    """רץ פעם אחת כשהשרת עולה: טוען את המודלים ואת האינדקס (ולא בכל שאלה)."""
+    llm, rewrite_llm, index, collection = get_clients()
     clients["llm"] = llm
+    clients["rewrite_llm"] = rewrite_llm
     clients["index"] = index
     print(f"Chunks in database: {collection.count()}")
     yield
@@ -81,7 +88,11 @@ def chat(request: ChatRequest):
     history = [message.model_dump() for message in request.history]
 
     try:
-        documents = retrieve_documents(request.question, clients["index"])
+        # שאלת המשך מנוסחת מחדש כשאלה עצמאית, ורק איתה מחפשים
+        search_question = rewrite_question(
+            request.question, history, clients["rewrite_llm"]
+        )
+        documents = retrieve_documents(search_question, clients["index"])
         answer, sources = generate_answer(
             request.question, documents, clients["llm"], history
         )
