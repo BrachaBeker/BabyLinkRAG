@@ -1,7 +1,11 @@
 import os
+import truststore
 
 from dotenv import load_dotenv
 from llama_index.llms.google_genai import GoogleGenAI
+
+# בדיקת תעודות HTTPS דרך Windows (שם מותקנת תעודת הסינון). הבדיקה לא מכובה
+truststore.inject_into_ssl()
 
 # טוען את המשתנים מקובץ .env אל משתני הסביבה (לפני שקוראים אותם)
 load_dotenv()
