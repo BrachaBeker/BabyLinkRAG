@@ -2,7 +2,7 @@
 
 עוזר שעונה על שאלות על [BabyLink](https://babylinkclient.onrender.com) (איך מפרסמים בקשה, מדיניות ביטולים, פרטיות, תמיכה) **רק לפי מסמכי הידע** שב-`docs/`. בנוי כמערכת **RAG** עם LlamaIndex, Gemini ו-ChromaDB. מה שאין עליו מידע מופנה לתמיכה.
 
-🔗 [לקוח](https://babylinkclient.onrender.com) · [Repository הלקוח](https://github.com/BrachaBeker/BabyLinkClient) (בועת הצ'אט: `src/components/ChatWidget.tsx`)
+🔗 [לקוח](https://babylinkclient.onrender.com) · [Repository הלקוח](https://github.com/BrachaBeker/BabyLinkClient) (בועת הצ'אט: `src/components/ChatWidget.tsx`) · [בעיות שהתגלו ואיך פתרתי אותן](PROBLEMS.md)
 
 ## ארכיטקטורה
 ```
