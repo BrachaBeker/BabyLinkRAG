@@ -22,8 +22,10 @@ load_dotenv()
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
-# מודל קל ומהיר לניסוח מחדש של שאלות המשך. למכסה החינמית יש מגבלה נפרדת לכל מודל,
-# כך שהניסוח לא "גוזל" קריאות ממודל התשובות
+# למכסה החינמית יש מגבלה נפרדת לכל מודל (למשל 20 קריאות ביום).
+# מודל גיבוי לתשובות: עונה כשלמודל הראשי נגמרה המכסה או שהוא עמוס
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
+# מודל קל ומהיר לניסוח מחדש של שאלות המשך, כדי שהניסוח לא "יגזול" קריאות ממודלי התשובות
 REWRITE_MODEL = os.getenv("GEMINI_REWRITE_MODEL", "gemini-3.5-flash-lite")
 
 CHROMA_PATH = "./chroma_db"
@@ -74,7 +76,7 @@ REWRITE_PROMPT = """
 # ==========================================
 
 def get_clients():
-    """יוצר את המודלים (תשובות + ניסוח מחדש) ואת האינדקס (חיבור ל-Chroma). נקרא פעם אחת בהתחלה."""
+    """יוצר את המודלים (תשובות + גיבוי + ניסוח מחדש) ואת האינדקס (חיבור ל-Chroma). נקרא פעם אחת בהתחלה."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
@@ -85,12 +87,23 @@ def get_clients():
         api_key=api_key,
     )
 
-    # temperature=0 - תשובה עקבית וצמודה למקורות, בלי "יצירתיות"
-    llm = GoogleGenAI(
-        model=CHAT_MODEL,
-        api_key=api_key,
-        temperature=0,
-    )
+    # מודלי התשובות לפי סדר: הראשי, ואחריו הגיבוי.
+    # temperature=0 - תשובה עקבית וצמודה למקורות, בלי "יצירתיות".
+    # max_retries=0 - כשלמודל הראשי נגמרה המכסה, לא מחכים ומנסים שוב (המכסה היומית
+    # לא תתחדש בעוד כמה שניות), אלא עוברים מיד למודל הגיבוי
+    llms = [
+        GoogleGenAI(
+            model=CHAT_MODEL,
+            api_key=api_key,
+            temperature=0,
+            max_retries=0,
+        ),
+        GoogleGenAI(
+            model=FALLBACK_MODEL,
+            api_key=api_key,
+            temperature=0,
+        ),
+    ]
 
     rewrite_llm = GoogleGenAI(
         model=REWRITE_MODEL,
@@ -115,7 +128,7 @@ def get_clients():
         embed_model=embed_model,
     )
 
-    return llm, rewrite_llm, index, collection
+    return llms, rewrite_llm, index, collection
 
 
 # ==========================================
@@ -133,9 +146,14 @@ def rewrite_question(question, history, llm):
         for item in history[-MAX_HISTORY_MESSAGES:]
     )
 
-    response = llm.complete(
-        REWRITE_PROMPT.format(history=conversation, question=question)
-    )
+    try:
+        response = llm.complete(
+            REWRITE_PROMPT.format(history=conversation, question=question)
+        )
+    except Exception as error:
+        # הניסוח הוא רק שיפור: אם הוא נכשל - מחפשים עם השאלה המקורית, ולא מפילים את כל התשובה
+        print(f"Rewrite failed, searching with the original question: {error}")
+        return question
 
     # אם המודל החזיר תשובה ריקה - מחפשים עם השאלה המקורית
     return response.text.strip() or question
@@ -226,14 +244,27 @@ def build_messages(question, documents, history):
     return messages
 
 
-def generate_answer(question, documents, llm, history):
+def chat_with_fallback(messages, llms):
+    """שולח את ההודעות למודל הראשון ברשימה. אם הוא נכשל (בדרך כלל: נגמרה המכסה) - עובר לבא אחריו."""
+    for llm in llms[:-1]:
+        try:
+            return llm.chat(messages)
+        except Exception as error:
+            # בלוג מספיקה תחילת השגיאה (למשל "429 RESOURCE_EXHAUSTED")
+            print(f"{llm.model} failed, trying the next model: {str(error)[:80]}")
+
+    # המודל האחרון: אם גם הוא נכשל - השגיאה עולה הלאה (ו-api.py מחזיר 503)
+    return llms[-1].chat(messages)
+
+
+def generate_answer(question, documents, llms, history):
     """שולח למודל את השאלה עם הקטעים, ומחזיר (תשובה, רשימת קובצי המקור)."""
     if not documents:
         return NO_ANSWER, []
 
     messages = build_messages(question, documents, history)
 
-    response = llm.chat(messages)
+    response = chat_with_fallback(messages, llms)
     answer = (response.message.content or "").strip() or NO_ANSWER
 
     # כשאין תשובה - לא מציגים מקורות, כי לא נעשה בהם שימוש

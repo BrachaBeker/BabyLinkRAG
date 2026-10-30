@@ -19,7 +19,7 @@ QUESTIONS = [
 
 def main():
     """לכל שאלה: האם הקובץ הנכון נשלף (Recall@k). ובסוף - ציון כולל."""
-    llm, _, index, collection = get_clients()
+    llms, _, index, collection = get_clients()
 
     found = 0
     answerable = 0
@@ -30,7 +30,7 @@ def main():
 
         # שאלה בלי תשובה במסמכים: בודקים שהמודל עונה NO_ANSWER ולא ממציא
         if expected is None:
-            answer, _ = generate_answer(question, documents, llm, [])
+            answer, _ = generate_answer(question, documents, llms, [])
             ok = answer == NO_ANSWER
             print(f"{'V' if ok else 'X'} {question}")
             print(f"    expected NO_ANSWER, got: {answer[:80]}")

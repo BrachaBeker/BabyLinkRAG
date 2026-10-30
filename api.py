@@ -56,8 +56,8 @@ class ChatResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """רץ פעם אחת כשהשרת עולה: טוען את המודלים ואת האינדקס (ולא בכל שאלה)."""
-    llm, rewrite_llm, index, collection = get_clients()
-    clients["llm"] = llm
+    llms, rewrite_llm, index, collection = get_clients()
+    clients["llms"] = llms
     clients["rewrite_llm"] = rewrite_llm
     clients["index"] = index
     print(f"Chunks in database: {collection.count()}")
@@ -94,7 +94,7 @@ def chat(request: ChatRequest):
         )
         documents = retrieve_documents(search_question, clients["index"])
         answer, sources = generate_answer(
-            request.question, documents, clients["llm"], history
+            request.question, documents, clients["llms"], history
         )
     except Exception as error:
         # Gemini לא זמין / חרגנו מהמכסה - שגיאה מסודרת ב-JSON במקום קריסה

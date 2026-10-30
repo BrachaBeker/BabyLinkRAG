@@ -6,7 +6,7 @@ SHOW_DOCUMENTS = False
 
 def main():
     """צ'אט בטרמינל מעל rag.py. Enter ריק = יציאה."""
-    llm, rewrite_llm, index, collection = get_clients()
+    llms, rewrite_llm, index, collection = get_clients()
     print(f"Chunks in database: {collection.count()}")
 
     # ההיסטוריה של השיחה הזו: [{"role": "user"/"assistant", "content": "..."}]
@@ -26,7 +26,7 @@ def main():
             for doc in documents:
                 print(f"  [{doc['score']:.3f}] {doc['source']}")
 
-        answer, sources = generate_answer(question, documents, llm, history)
+        answer, sources = generate_answer(question, documents, llms, history)
 
         print(f"\nעוזר: {answer}")
         if sources:
