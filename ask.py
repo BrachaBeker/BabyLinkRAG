@@ -1,6 +1,6 @@
-from rag import get_clients, rewrite_question, retrieve_documents, generate_answer
+from rag import get_clients, build_search_queries, retrieve_for_queries, generate_answer
 
-# True = מדפיס גם את השאלה שנשלחה לחיפוש, ואת הקטעים שנשלפו והציונים שלהם (לבדיקה)
+# True = מדפיס גם את שאלות החיפוש, ואת הקטעים שנשלפו והציונים שלהם (לבדיקה)
 SHOW_DOCUMENTS = False
 
 
@@ -17,12 +17,12 @@ def main():
         if not question:
             break
 
-        # שאלת המשך מנוסחת מחדש כשאלה עצמאית, ורק איתה מחפשים
-        search_question = rewrite_question(question, history, rewrite_llm)
-        documents = retrieve_documents(search_question, index)
+        # שאלת המשך הופכת לשאלה עצמאית, ושאלה כפולה מתפרקת - ולכל שאלה חיפוש משלה
+        queries = build_search_queries(question, history, rewrite_llm)
+        documents = retrieve_for_queries(queries, index)
 
         if SHOW_DOCUMENTS:
-            print(f"  חיפוש: {search_question}")
+            print(f"  חיפוש: {' | '.join(queries)}")
             for doc in documents:
                 print(f"  [{doc['score']:.3f}] {doc['source']}")
 

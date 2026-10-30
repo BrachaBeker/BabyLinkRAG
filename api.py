@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 
 from rag import (
     get_clients,
-    rewrite_question,
-    retrieve_documents,
+    build_search_queries,
+    retrieve_for_queries,
     generate_answer,
     MAX_HISTORY_MESSAGES,
 )
@@ -88,11 +88,11 @@ def chat(request: ChatRequest):
     history = [message.model_dump() for message in request.history]
 
     try:
-        # שאלת המשך מנוסחת מחדש כשאלה עצמאית, ורק איתה מחפשים
-        search_question = rewrite_question(
+        # שאלת המשך הופכת לשאלה עצמאית, ושאלה כפולה מתפרקת - ולכל שאלה חיפוש משלה
+        queries = build_search_queries(
             request.question, history, clients["rewrite_llm"]
         )
-        documents = retrieve_documents(search_question, clients["index"])
+        documents = retrieve_for_queries(queries, clients["index"])
         answer, sources = generate_answer(
             request.question, documents, clients["llms"], history
         )

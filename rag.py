@@ -25,7 +25,8 @@ CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
 # למכסה החינמית יש מגבלה נפרדת לכל מודל (למשל 20 קריאות ביום).
 # מודל גיבוי לתשובות: עונה כשלמודל הראשי נגמרה המכסה או שהוא עמוס
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
-# מודל קל ומהיר לניסוח מחדש של שאלות המשך, כדי שהניסוח לא "יגזול" קריאות ממודלי התשובות
+# מודל קל ומהיר להכנת שאלות החיפוש (השלמת שאלת המשך, פירוק שאלה כפולה),
+# כדי שההכנה לא "תגזול" קריאות ממודלי התשובות
 REWRITE_MODEL = os.getenv("GEMINI_REWRITE_MODEL", "gemini-3.5-flash-lite")
 
 CHROMA_PATH = "./chroma_db"
@@ -33,6 +34,8 @@ COLLECTION_NAME = "documents"
 
 TOP_K = 4
 MAX_HISTORY_MESSAGES = 6
+# שאלה כפולה מתפרקת לכל היותר ל-3 שאלות חיפוש (ולכל אחת TOP_K קטעים)
+MAX_SEARCH_QUERIES = 3
 
 # פרטי התמיכה - מתוך docs/06_contact_and_support.md
 NO_ANSWER = (
@@ -60,11 +63,13 @@ SYSTEM_PROMPT = f"""
 7. במקרה חירום - הפנה מיד למד"א (101) או למשטרה (100), כמו שכתוב במסמכים.
 """
 
-# ניסוח מחדש של שאלת המשך, כדי שהחיפוש יבין אותה גם בלי השיחה
-REWRITE_PROMPT = """
-לפניך שיחה ושאלה חדשה. נסח מחדש את השאלה החדשה כשאלה עצמאית ומלאה,
-שמובנת גם בלי השיחה. אם היא כבר עצמאית - החזר אותה כמו שהיא.
-החזר רק את השאלה, בלי הסברים.
+# הכנת שאלות לחיפוש: שאלת המשך הופכת לשאלה עצמאית, ושאלה כפולה מתפרקת לשאלות נפרדות
+SEARCH_QUERIES_PROMPT = """
+לפניך שיחה ושאלה חדשה. הכן מהשאלה החדשה שאלות לחיפוש במאגר מידע:
+- אם היא מתייחסת לשיחה (למשל "ומה לגבי שמרטפית?") - נסח אותה כשאלה עצמאית ומלאה.
+- אם יש בה כמה שאלות על נושאים שונים - כתוב כל שאלה בשורה נפרדת.
+- אם היא כבר שאלה אחת ועצמאית - החזר אותה כמו שהיא.
+החזר רק את השאלות, כל שאלה בשורה, בלי מספור ובלי הסברים.
 
 השיחה:
 {history}
@@ -137,28 +142,46 @@ def get_clients():
 # Search documents
 # ==========================================
 
-def rewrite_question(question, history, llm):
-    """שאלת המשך ("ומה לגבי שמרטפית?") -> שאלה עצמאית לחיפוש.
-    בלי היסטוריה (שאלה ראשונה בשיחה) - מחזיר את השאלה כמו שהיא, בלי לפנות למודל."""
-    if not history:
-        return question
-
+def build_search_queries(question, history, llm):
+    """מחזיר רשימת שאלות לחיפוש:
+    "ומה לגבי שמרטפית?" -> ["איך שמרטפית יכולה לבטל שיבוץ?"] (השלמה לפי השיחה)
+    "איך פונים לתמיכה? ואיך מפרסמים בקשה?" -> שתי שאלות נפרדות (פירוק)."""
     conversation = "\n".join(
         f"{'משתמש' if item['role'] == 'user' else 'עוזר'}: {item['content']}"
         for item in history[-MAX_HISTORY_MESSAGES:]
-    )
+    ) or "(אין - זו השאלה הראשונה)"
 
     try:
         response = llm.complete(
-            REWRITE_PROMPT.format(history=conversation, question=question)
+            SEARCH_QUERIES_PROMPT.format(history=conversation, question=question)
         )
     except Exception as error:
-        # הניסוח הוא רק שיפור: אם הוא נכשל - מחפשים עם השאלה המקורית, ולא מפילים את כל התשובה
-        print(f"Rewrite failed, searching with the original question: {error}")
-        return question
+        # זה רק שיפור: אם המודל נכשל - מחפשים עם השאלה המקורית, ולא מפילים את כל התשובה
+        print(f"Search queries failed, searching with the original question: {error}")
+        return [question]
 
-    # אם המודל החזיר תשובה ריקה - מחפשים עם השאלה המקורית
-    return response.text.strip() or question
+    # שורה = שאלה. מנקים מקפים שהמודל אולי הוסיף, ומגבילים את מספר השאלות
+    queries = [
+        line.strip(" -•*").strip()
+        for line in response.text.splitlines()
+        if line.strip(" -•*").strip()
+    ]
+    return queries[:MAX_SEARCH_QUERIES] or [question]
+
+
+def retrieve_for_queries(queries, index):
+    """חיפוש נפרד לכל שאלה (TOP_K קטעים לכל אחת), ואיחוד הקטעים בלי כפילויות.
+    כך בשאלה כפולה כל נושא מקבל קטעים משלו, ונושא אחד לא "בולע" את כל המקומות."""
+    documents = []
+    seen_texts = set()
+
+    for query in queries:
+        for doc in retrieve_documents(query, index):
+            if doc["text"] not in seen_texts:
+                seen_texts.add(doc["text"])
+                documents.append(doc)
+
+    return documents
 
 
 def retrieve_documents(question, index):
