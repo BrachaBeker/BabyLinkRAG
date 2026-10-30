@@ -94,7 +94,7 @@ def chat(request: ChatRequest):
         )
         documents = retrieve_for_queries(queries, clients["index"])
         answer, sources = generate_answer(
-            request.question, documents, clients["llms"], history
+            request.question, documents, clients["llms"], history, queries
         )
     except Exception as error:
         # Gemini לא זמין / חרגנו מהמכסה - שגיאה מסודרת ב-JSON במקום קריסה

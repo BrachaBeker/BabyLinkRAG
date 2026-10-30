@@ -26,7 +26,7 @@ def main():
             for doc in documents:
                 print(f"  [{doc['score']:.3f}] {doc['source']}")
 
-        answer, sources = generate_answer(question, documents, llms, history)
+        answer, sources = generate_answer(question, documents, llms, history, queries)
 
         print(f"\nעוזר: {answer}")
         if sources:

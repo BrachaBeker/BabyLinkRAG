@@ -38,8 +38,9 @@ MAX_HISTORY_MESSAGES = 6
 MAX_SEARCH_QUERIES = 3
 
 # פרטי התמיכה - מתוך docs/06_contact_and_support.md
+NO_ANSWER_START = "אין לי מספיק מידע כדי לענות על השאלה הזו"
 NO_ANSWER = (
-    "אין לי מספיק מידע כדי לענות על השאלה הזו. "
+    f"{NO_ANSWER_START}. "
     "אפשר לפנות לתמיכה של BabyLink: bb0534155470@gmail.com "
     "או בטלפון 053-4155470 (ראשון עד חמישי, 09:00-17:00)."
 )
@@ -215,8 +216,14 @@ def retrieve_documents(question, index):
 # Generate answer
 # ==========================================
 
-def build_messages(question, documents, history):
+def build_messages(question, documents, history, search_queries=None):
     """בונה את רשימת ההודעות שנשלחת למודל: הוראות, היסטוריה, ושאלה + קטעים."""
+    # שאלת המשך ("מה התרגום של זה?"): מוסיפים גם את הניסוח המלא שלה,
+    # כדי שהמודל יבין למה "זה" מתייחס
+    full_question = ""
+    if search_queries and search_queries != [question]:
+        full_question = "\nהשאלה בניסוח מלא (לפי השיחה):\n" + "\n".join(search_queries) + "\n"
+
     context = "\n\n".join(
         f"[מקור {i}]\n"
         f"שם הקובץ: {doc['source']}\n"
@@ -252,7 +259,7 @@ def build_messages(question, documents, history):
             content=f"""
 שאלת המשתמש:
 {question}
-
+{full_question}
 קטעי מידע שנשלפו מהמאגר:
 <context>
 {context}
@@ -286,19 +293,20 @@ def chat_with_fallback(messages, llms):
     return llms[-1].chat(messages)
 
 
-def generate_answer(question, documents, llms, history):
+def generate_answer(question, documents, llms, history, search_queries=None):
     """שולח למודל את השאלה עם הקטעים, ומחזיר (תשובה, רשימת קובצי המקור)."""
     if not documents:
         return NO_ANSWER, []
 
-    messages = build_messages(question, documents, history)
+    messages = build_messages(question, documents, history, search_queries)
 
     response = chat_with_fallback(messages, llms)
     answer = (response.message.content or "").strip() or NO_ANSWER
 
-    # כשאין תשובה - לא מציגים מקורות, כי לא נעשה בהם שימוש
-    if answer == NO_ANSWER:
-        return answer, []
+    # כשאין תשובה - מחזירים את ההודעה הקבועה בדיוק (גם אם המודל הוסיף לה הסבר),
+    # ובלי מקורות, כי לא נעשה בהם שימוש
+    if answer.startswith(NO_ANSWER_START):
+        return NO_ANSWER, []
 
     # שמות הקבצים בלי כפילויות, לפי סדר הופעתם
     sources = list(dict.fromkeys(
