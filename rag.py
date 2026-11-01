@@ -36,6 +36,11 @@ TOP_K = 4
 MAX_HISTORY_MESSAGES = 6
 # שאלה כפולה מתפרקת לכל היותר ל-3 שאלות חיפוש (ולכל אחת TOP_K קטעים)
 MAX_SEARCH_QUERIES = 3
+# נוסף לתשובה כששאלו יותר מ-MAX_SEARCH_QUERIES שאלות בהודעה אחת
+TOO_MANY_QUESTIONS_NOTE = (
+    f"אפשר לענות על עד {MAX_SEARCH_QUERIES} שאלות בהודעה אחת, "
+    "לכן עניתי רק על הראשונות. את השאר אפשר לשאול בהודעה נפרדת."
+)
 
 # פרטי התמיכה - מתוך docs/06_contact_and_support.md
 NO_ANSWER_START = "אין לי מספיק מידע כדי לענות על השאלה הזו"
@@ -166,13 +171,14 @@ def build_search_queries(question, history, llm):
         print(f"Search queries failed, searching with the original question: {error}")
         return [question]
 
-    # שורה = שאלה. מנקים מקפים שהמודל אולי הוסיף, ומגבילים את מספר השאלות
+    # שורה = שאלה. מנקים מקפים שהמודל אולי הוסיף.
+    # מחזירים את כולן, כדי ש-generate_answer יידע אם שאלו יותר מדי
     queries = [
         line.strip(" -•*").strip()
         for line in response.text.splitlines()
         if line.strip(" -•*").strip()
     ]
-    return queries[:MAX_SEARCH_QUERIES] or [question]
+    return queries or [question]
 
 
 def retrieve_for_queries(queries, index):
@@ -181,7 +187,7 @@ def retrieve_for_queries(queries, index):
     documents = []
     seen_texts = set()
 
-    for query in queries:
+    for query in queries[:MAX_SEARCH_QUERIES]:
         for doc in retrieve_documents(query, index):
             if doc["text"] not in seen_texts:
                 seen_texts.add(doc["text"])
@@ -224,7 +230,10 @@ def build_messages(question, documents, history, search_queries=None):
     # שאלת המשך ("מה התרגום של זה?"): מוסיפים גם את הניסוח המלא שלה,
     # כדי שהמודל יבין למה "זה" מתייחס
     full_question = ""
-    if search_queries and search_queries != [question]:
+    if search_queries and len(search_queries) > MAX_SEARCH_QUERIES:
+        # יותר מדי שאלות: המודל מקבל רק את הראשונות, כדי שלא יכתוב שאין מידע על השאר
+        question = "\n".join(search_queries[:MAX_SEARCH_QUERIES])
+    elif search_queries and search_queries != [question]:
         full_question = "\nהשאלה בניסוח מלא (לפי השיחה):\n" + "\n".join(search_queries) + "\n"
 
     context = "\n\n".join(
@@ -309,13 +318,17 @@ def generate_answer(question, documents, llms, history, search_queries=None):
     # כשאין תשובה - מחזירים את ההודעה הקבועה בדיוק (גם אם המודל הוסיף לה הסבר),
     # ובלי מקורות, כי לא נעשה בהם שימוש
     if answer.startswith(NO_ANSWER_START):
-        return NO_ANSWER, []
+        answer = NO_ANSWER
+        sources = []
+    else:
+        # שמות הקבצים בלי כפילויות, לפי סדר הופעתם
+        sources = list(dict.fromkeys(
+            doc["source"]
+            for doc in documents
+            if doc["source"] != "Unknown source"
+        ))
 
-    # שמות הקבצים בלי כפילויות, לפי סדר הופעתם
-    sources = list(dict.fromkeys(
-        doc["source"]
-        for doc in documents
-        if doc["source"] != "Unknown source"
-    ))
+    if search_queries and len(search_queries) > MAX_SEARCH_QUERIES:
+        answer += f"\n\n{TOO_MANY_QUESTIONS_NOTE}"
 
     return answer, sources
